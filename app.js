@@ -75,7 +75,7 @@ app.get('/callback', function (req, res) {
             json: true
         };
 
-        axios(authOptions).then((response)=>{
+        axios(authOptions).then((response) => {
             if (response.status === 200) {
                 let body = response.data;
 
@@ -83,7 +83,7 @@ app.get('/callback', function (req, res) {
                     refresh_token = body.refresh_token;
 
                 var options = {
-                    method:"get",
+                    method: "get",
                     url: 'https://api.spotify.com/v1/me',
                     headers: { 'Authorization': 'Bearer ' + access_token },
                     json: true
@@ -107,7 +107,7 @@ app.get('/callback', function (req, res) {
                         error: 'invalid_token'
                     }));
             }
-        }).catch((error)=> {
+        }).catch((error) => {
             console.log(error)
         });
     }
@@ -118,7 +118,7 @@ app.get('/refresh_token', function (req, res) {
     // requesting access token from refresh token
     var refresh_token = req.query.refresh_token;
     var authOptions = {
-        method:"post",
+        method: "post",
         url: 'https://accounts.spotify.com/api/token',
         headers: { 'Authorization': 'Basic ' + (Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64')) },
         params: {
@@ -139,9 +139,45 @@ app.get('/refresh_token', function (req, res) {
     });
 });
 
-app.post('/generate_playlist', (req, res)=> {
-    console.log(req.body);
-    res.send({sucess:false});
+app.post('/generate_playlist', (req, res) => {
+    let clientID = req.body.clientID;
+    let clientAccessToken = req.body.access_token;
+    let genres = ["metalcore"]; // TODO
+    let songURIs = [];
+    let currentPlaylistItems = [];
+    let playlistName = "Auto-Generated - Nazzera";
+
+    // Check Playlist Data
+    let playlistID = 0;
+    new Promise((resolve) => {
+        var options = {
+            method: "get",
+            url: 'https://api.spotify.com/v1/me/playlists',
+            headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+            json: true
+        };
+        axios(options).then((response) => {
+            let pageData = response.data;
+            let found = false;
+            pageData["items"].forEach(element => {
+                if(element["name"] == playlistName) {
+                    resolve(element["id"]);
+                    found = true;
+                }
+            });
+            if(!found) {
+                resolve(0);
+            }
+        });
+    }).then((res) => {
+        if(res == 0) {
+
+        } else {
+            playlistID = res;
+        }
+    });
+
+    res.send({ sucess: false });
 });
 
 console.log('Listening on 8888');
