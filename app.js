@@ -136,65 +136,120 @@ app.get('/refresh_token', function (req, res) {
                 'access_token': access_token
             });
         }
+    }).catch((err) => {
+        console.log(err)
     });
 });
 
 app.post('/generate_playlist', (req, res) => {
     let userID = req.body.clientID;
     let clientAccessToken = req.body.access_token;
-    let genres = ["metalcore", "punk"]; // TODO
+    let spotifyGenres = [];
+    let genres = []; // TODO
     let playlistName = "Nazzer - NodeJS";
 
-    // Check Playlist Data
-    let playlistID = 0;
+    // Grab Genres from Spotify
     new Promise((resolve) => {
         var options = {
             method: "get",
-            url: 'https://api.spotify.com/v1/me/playlists',
+            url: 'https://api.spotify.com/v1/recommendations/available-genre-seeds',
             headers: { 'Authorization': 'Bearer ' + clientAccessToken },
             json: true
-        };
-        axios(options).then((response) => {
-            let pageData = response.data;
-            let found = false;
-            pageData["items"].forEach(element => {
-                if(element["name"] == playlistName) {
-                    resolve(element["id"]);
-                    found = true;
+        }
+        axios(options).then((resData) => {
+            let data = resData.data;
+            resolve(data["genres"]);
+        }).catch((err) => {
+            console.log(err)
+        });
+    }).then((result) => {
+        spotifyGenres = result;
+
+        // Fetch Genres assigned to Users Top Artists
+        new Promise((resolve) => {
+            var data = {
+                "limit": 50,
+                "time_range": "short_term"
+            }
+            var options = {
+                method: "get",
+                url: 'https://api.spotify.com/v1/me/top/artists',
+                headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+                json: true,
+                params: data
+            }
+            axios(options).then((resData) => {
+                let data = resData.data;
+                data["items"].forEach(element => {
+                    element["genres"].forEach(genre => {
+                        if (spotifyGenres.includes(genre)) {
+                            if (!genres.includes(genre)) {
+                                genres.push(genre);
+                            }
+                        }
+                    });
+                })
+                resolve();
+            }).catch((err) => {
+                console.log(err)
+            });
+        }).then(() => {
+
+
+            // Check Playlist Data
+            let playlistID = 0;
+            new Promise((resolve) => {
+                var options = {
+                    method: "get",
+                    url: 'https://api.spotify.com/v1/me/playlists',
+                    headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+                    json: true
+                };
+                axios(options).then((response) => {
+                    let pageData = response.data;
+                    let found = false;
+                    pageData["items"].forEach(element => {
+                        if (element["name"] == playlistName) {
+                            resolve(element["id"]);
+                            found = true;
+                        }
+                    });
+                    if (!found) {
+                        createPlaylist(playlistName, userID, clientAccessToken).then((resp) => {
+                            resolve(resp);
+                        });
+                    }
+                }).catch((error) => {
+                    console.log(error);
+                });
+            }).then((resolution) => {
+                if (resolution == 0) {
+                    res.send({ sucess: false });
+                } else {
+                    playlistID = resolution;
+                    console.log(playlistID);
+
+                    // Get Playlist Data
+                    fetchPlaylistData(clientAccessToken, playlistID).then((data) => {
+                        currentPlaylistItems = data;
+
+                        // Now fetch recommended data for the user.
+                        genres.forEach(element => {
+                            console.log(`Fetching songs from ${element}`)
+                            fetchRecommendedForGenre(clientAccessToken, element, currentPlaylistItems).then((resp) => {
+                                // Lets add those songs to the playlist
+                                addSongsToPlaylist(clientAccessToken, playlistID, resp).then((response) => {
+                                });
+                            });
+                        });
+
+                    });
+
                 }
             });
-            if(!found) {
-                createPlaylist(playlistName, userID,clientAccessToken).then((resp) => {
-                    resolve(resp);
-                });
-            }
-        }).catch((error) => {
-            console.log(error);
+
         });
-    }).then((resolution) => {
-        if(resolution == 0) {
-            res.send({ sucess: false });
-        } else {
-            playlistID = resolution;
-            console.log(playlistID);
 
-            // Get Playlist Data
-            fetchPlaylistData(clientAccessToken, playlistID).then((data) => {
-                currentPlaylistItems = data;
-
-                // Now fetch recommended data for the user.
-                genres.forEach(element => {
-                    console.log(`Fetching songs from ${element}`)
-                    fetchRecommendedForGenre(clientAccessToken, element, currentPlaylistItems).then((resp) => {
-                        // Lets add those songs to the playlist
-                        addSongsToPlaylist(clientAccessToken, playlistID, resp).then((response) => {
-                        });
-                    });
-                });
-
-            });
-
-        }
     });
     //res.send({ sucess: false });
 });
@@ -218,6 +273,8 @@ function createPlaylist(playlistName, userID, clientAccessToken) {
         };
         axios(options).then((response) => {
             resolve(response.data.id);
+        }).catch((error) => {
+            console.log(error)
         });
     })
 }
@@ -229,9 +286,9 @@ function fetchPlaylistData(userToken, playlistID) {
         let offset = 0;
         let end = false;
         let checkLength = () => {
-            if(!end) {
+            if (!end) {
                 fetchPlaylistDataOffset(userToken, playlistID, offset).then(data => {
-                    if(data["items"].length > 0) {
+                    if (data["items"].length > 0) {
                         data["items"].forEach(element => {
                             let track = element["track"];
                             currentPlaylistItems.push(track["uri"]);
@@ -262,7 +319,7 @@ function fetchPlaylistDataOffset(userToken, playlistID, offset) {
             res(data);
         }).catch((error) => {
             console.log(error);
-        });;       
+        });;
     })
 }
 
@@ -272,8 +329,8 @@ function fetchRecommendedForGenre(userToken, genre, playlistContent) {
 
         data = {
             seed_genres: genre,
-            limit:100,
-            market:"GB"
+            limit: 100,
+            market: "GB"
         };
 
         let options = {
@@ -286,7 +343,7 @@ function fetchRecommendedForGenre(userToken, genre, playlistContent) {
         axios(options).then((response) => {
             let resData = response.data;
             resData["tracks"].forEach(element => {
-                if(!playlistContent.includes(element["uri"])) {
+                if (!playlistContent.includes(element["uri"])) {
                     songs.push(element["uri"]);
                 }
             });
@@ -311,7 +368,7 @@ function addSongsToPlaylist(userToken, playlistID, songs) {
             let resData = response.data;
             resolve(resData);
         }).catch((error) => {
-            console.log(error);
+            //console.log(error);
         });;
     });
 }
