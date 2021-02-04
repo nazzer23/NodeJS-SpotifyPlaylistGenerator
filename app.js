@@ -179,17 +179,59 @@ app.post('/generate_playlist', (req, res) => {
                 params: data
             }
             axios(options).then((resData) => {
-                let data = resData.data;
-                data["items"].forEach(element => {
-                    element["genres"].forEach(genre => {
-                        if (spotifyGenres.includes(genre)) {
-                            if (!genres.includes(genre)) {
-                                genres.push(genre);
-                            }
+                let outputData = resData.data;
+                if(outputData["items"].length == 0) {
+                    data["time_range"] = "medium_term";
+                    axios(options).then((resData) => {
+                        let outputData = resData.data;
+                        if(outputData["items"].length == 0) {
+                            data["time_range"] = "long_term";
+                            axios(options).then((resData) => {
+                                let outputData = resData.data;
+                                if(outputData["items"].length == 0) {
+                                    res.send({success:false});
+                                } else {
+                                    outputData["items"].forEach(element => {
+                                        element["genres"].forEach(genre => {
+                                            if (spotifyGenres.includes(genre)) {
+                                                if (!genres.includes(genre)) {
+                                                    genres.push(genre);
+                                                }
+                                            }
+                                        });
+                                    })
+                                    resolve();
+                                }
+                            }).catch((err) => {
+                                console.log(err);
+                            });
+                        } else {
+                            outputData["items"].forEach(element => {
+                                element["genres"].forEach(genre => {
+                                    if (spotifyGenres.includes(genre)) {
+                                        if (!genres.includes(genre)) {
+                                            genres.push(genre);
+                                        }
+                                    }
+                                });
+                            })
+                            resolve();
                         }
+                    }).catch((err) => {
+                        console.log(err);
                     });
-                })
-                resolve();
+                } else {
+                    outputData["items"].forEach(element => {
+                        element["genres"].forEach(genre => {
+                            if (spotifyGenres.includes(genre)) {
+                                if (!genres.includes(genre)) {
+                                    genres.push(genre);
+                                }
+                            }
+                        });
+                    })
+                    resolve();
+                }
             }).catch((err) => {
                 console.log(err)
             });
@@ -368,7 +410,7 @@ function addSongsToPlaylist(userToken, playlistID, songs) {
             let resData = response.data;
             resolve(resData);
         }).catch((error) => {
-            //console.log(error);
+            console.log(error);
         });;
     });
 }
