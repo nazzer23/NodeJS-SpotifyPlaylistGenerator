@@ -267,18 +267,14 @@ async function generateRandomPlaylist(req, res) {
         let songRecommendations = await fetchRecommendedSongsForGenre(access_token, (country ?? "GB"), genre, spotifyPlaylistContent);
         let maxAttemptsToGenre = 0;
         while((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre < 3)) {
-            console.log(maxAttemptsToGenre);
             songRecommendations.concat(await fetchRecommendedSongsForGenre(access_token, (country ?? "GB"), genre, spotifyPlaylistContent, songRecommendations));
             maxAttemptsToGenre++;
         }
         songRecommendations = songRecommendations.slice(0, GENRE_SONG_CHUNK);
-        console.log(`${genre} - ${songRecommendations.length}`);
         if(songRecommendations.length > 0) {
             await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
         }
     }
-
-    console.log("Done")
 
     res.json({
         "success": true,
