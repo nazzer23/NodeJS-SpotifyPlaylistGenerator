@@ -8,8 +8,8 @@ let cookieParser = require('cookie-parser');
 
 const app = express();
 
-const { CLIENT_ID, CLIENT_SECRET } = process.env;
-let redirectUri = "http://localhost:8888/callback";
+const { CLIENT_ID, CLIENT_SECRET, CALLBACK_URL, WEB_PORT } = process.env;
+let redirectUri = `${CALLBACK_URL}/callback`;
 
 let generateRandomString = function (length) {
     var text = '';
@@ -91,6 +91,8 @@ app.get('/callback', async (req, res) => {
     if (authorizationResponse.status !== 200) {
         res.clearCookie('access_token');
         res.clearCookie('refresh_token');
+        res.clearCookie('clientID');
+        res.clearCookie('country');
         res.redirect('/#' +
             querystring.stringify({
                 error: 'invalid_token'
@@ -114,10 +116,12 @@ app.get('/callback', async (req, res) => {
     // use the access token to access the Spotify Web API
     const spotifyResponse = await axios(options);
     console.log(`${spotifyResponse.data.display_name} logged in.`);
+    console.log(spotifyResponse.data)
 
     // we can also pass the token to the browser to make requests from there
 
     res.cookie("clientID", spotifyResponse.data.id);
+    res.cookie("country", spotifyResponse.data.country);
     res.cookie("access_token", access_token);
     res.cookie("refresh_token", refresh_token);
     res.redirect("/");
@@ -162,17 +166,18 @@ app.post('/generateRandomPlaylist', async (req, res) => await generateRandomPlay
 
 // User Logout Handler
 app.get('/logout', (req, res) => {
-    res.clearCookie('clientID');
     res.clearCookie('access_token');
     res.clearCookie('refresh_token');
+    res.clearCookie('clientID');
+    res.clearCookie('country');
     res.redirect('/');
 })
 
-console.log('Listening on 8888');
-app.listen(8888);
+console.log(`Listening on ${WEB_PORT}`);
+app.listen(WEB_PORT);
 
 async function generateRandomPlaylist(req, res) {
-    const { clientID, access_token } = req.cookies;
+    const { clientID, access_token, country } = req.cookies;
 
     // Allow the ability to specify a playlist name using json payload
     let spotifyPlaylistName = req.body.playlistName ?? "Node Generated";
@@ -262,7 +267,7 @@ async function generateRandomPlaylist(req, res) {
     }
 
     for await (let genre of userGenres) {
-        const songRecommendations = await fetchRecommendedSongsForGenre(access_token, genre, spotifyPlaylistContent);
+        const songRecommendations = await fetchRecommendedSongsForGenre(access_token, (country ?? "GB"), genre, spotifyPlaylistContent);
         if(songRecommendations.length > 0) {
             await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
         }
@@ -383,7 +388,7 @@ async function fetchPlaylistDataOffset(userToken, playlistID, offset = 0) {
     return playlistDataResponse;
 }
 
-async function fetchRecommendedSongsForGenre(userToken, genre, playlistContent) {
+async function fetchRecommendedSongsForGenre(userToken, userCountry, genre, playlistContent) {
     let songs = [];
 
     data = {
