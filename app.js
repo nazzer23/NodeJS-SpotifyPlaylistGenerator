@@ -115,11 +115,8 @@ app.get('/callback', async (req, res) => {
 
     // use the access token to access the Spotify Web API
     const spotifyResponse = await axios(options);
-    console.log(`${spotifyResponse.data.display_name} logged in.`);
-    console.log(spotifyResponse.data)
-
+    
     // we can also pass the token to the browser to make requests from there
-
     res.cookie("clientID", spotifyResponse.data.id);
     res.cookie("country", spotifyResponse.data.country);
     res.cookie("access_token", access_token);
