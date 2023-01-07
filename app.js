@@ -34,7 +34,16 @@ app.get('/login', function (req, res) {
     res.cookie(stateKey, state);
 
     // your application requests authorization
-    var scope = 'user-read-private user-read-email playlist-read-collaborative playlist-read-private playlist-modify-private playlist-modify-public user-top-read';
+    var permissionScopes = [
+        'user-read-private',
+        'user-read-email',
+        'playlist-read-collaborative',
+        'playlist-read-private',
+        'playlist-modify-private',
+        'playlist-modify-public',
+        'user-top-read'
+    ];
+    var scope = permissionScopes.join(' ');
     res.redirect('https://accounts.spotify.com/authorize?' +
         querystring.stringify({
             response_type: 'code',
@@ -45,7 +54,7 @@ app.get('/login', function (req, res) {
         }));
 });
 
-app.get('/callback', function (req, res) {
+app.get('/callback', async (req, res) => {
 
     // your application requests refresh and access tokens
     // after checking the state parameter
@@ -58,65 +67,72 @@ app.get('/callback', function (req, res) {
         res.redirect('/#' +
             querystring.stringify({
                 error: 'state_mismatch'
-            }));
-    } else {
-        res.clearCookie(stateKey);
-        var authOptions = {
-            method: 'post',
-            url: 'https://accounts.spotify.com/api/token',
-            params: {
-                code: code,
-                redirect_uri: redirectUri,
-                grant_type: 'authorization_code'
-            },
-            headers: {
-                'Authorization': 'Basic ' + (Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64'))
-            },
-            json: true
-        };
-
-        axios(authOptions).then((response) => {
-            if (response.status === 200) {
-                let body = response.data;
-
-                var access_token = body.access_token,
-                    refresh_token = body.refresh_token;
-
-                var options = {
-                    method: "get",
-                    url: 'https://api.spotify.com/v1/me',
-                    headers: { 'Authorization': 'Bearer ' + access_token },
-                    json: true
-                };
-
-
-                // use the access token to access the Spotify Web API
-                axios(options).then((res) => {
-                    console.log(`${res.data.display_name} logged in.`);
-                });
-
-                // we can also pass the token to the browser to make requests from there
-                res.redirect('/#' +
-                    querystring.stringify({
-                        access_token: access_token,
-                        refresh_token: refresh_token
-                    }));
-            } else {
-                res.redirect('/#' +
-                    querystring.stringify({
-                        error: 'invalid_token'
-                    }));
-            }
-        }).catch((error) => {
-            console.log(error)
-        });
+            })
+        );
+        return;
     }
+
+    res.clearCookie(stateKey);
+    var authOptions = {
+        method: 'post',
+        url: 'https://accounts.spotify.com/api/token',
+        params: {
+            code: code,
+            redirect_uri: redirectUri,
+            grant_type: 'authorization_code'
+        },
+        headers: {
+            'Authorization': 'Basic ' + (Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64'))
+        },
+        json: true
+    };
+
+    const authorizationResponse = await axios(authOptions);
+    if (authorizationResponse.status !== 200) {
+        res.clearCookie('access_token');
+        res.clearCookie('refresh_token');
+        res.redirect('/#' +
+            querystring.stringify({
+                error: 'invalid_token'
+            })
+        );
+        return;
+    }
+
+    let body = authorizationResponse.data;
+
+    var access_token = body.access_token,
+        refresh_token = body.refresh_token;
+
+    var options = {
+        method: "get",
+        url: 'https://api.spotify.com/v1/me',
+        headers: { 'Authorization': 'Bearer ' + access_token },
+        json: true
+    };
+
+    // use the access token to access the Spotify Web API
+    const spotifyResponse = await axios(options);
+    console.log(`${spotifyResponse.data.display_name} logged in.`);
+
+    // we can also pass the token to the browser to make requests from there
+
+    res.cookie("clientID", spotifyResponse.data.id);
+    res.cookie("access_token", access_token);
+    res.cookie("refresh_token", refresh_token);
+    res.redirect("/");
+    return;
+    // res.redirect('/#' +
+    //     querystring.stringify({
+    //         access_token: access_token,
+    //         refresh_token: refresh_token
+    //     }));
 });
 
 app.get('/refresh_token', function (req, res) {
 
     // requesting access token from refresh token
-    var refresh_token = req.query.refresh_token;
+    var refresh_token = req.cookies ? req.cookies['refresh_token'] : null;
     var authOptions = {
         method: "post",
         url: 'https://accounts.spotify.com/api/token',
@@ -132,7 +148,8 @@ app.get('/refresh_token', function (req, res) {
         let body = response.data;
         if (response.status === 200) {
             var access_token = body.access_token;
-            res.send({
+            res.cookie("access_token", access_token);
+            res.json({
                 'access_token': access_token
             });
         }
@@ -141,276 +158,272 @@ app.get('/refresh_token', function (req, res) {
     });
 });
 
-app.post('/generate_playlist', (req, res) => {
-    let userID = req.body.clientID;
-    let clientAccessToken = req.body.access_token;
-    let spotifyGenres = [];
-    let genres = []; // TODO
-    let playlistName = "Nazzer - NodeJS";
+app.post('/generateRandomPlaylist', async (req, res) => await generateRandomPlaylist(req, res));
 
-    // Grab Genres from Spotify
-    new Promise((resolve) => {
-        var options = {
-            method: "get",
-            url: 'https://api.spotify.com/v1/recommendations/available-genre-seeds',
-            headers: { 'Authorization': 'Bearer ' + clientAccessToken },
-            json: true
-        }
-        axios(options).then((resData) => {
-            let data = resData.data;
-            resolve(data["genres"]);
-        }).catch((err) => {
-            console.log(err)
-        });
-    }).then((result) => {
-        spotifyGenres = result;
-
-        // Fetch Genres assigned to Users Top Artists
-        new Promise((resolve) => {
-            var data = {
-                "limit": 50,
-                "time_range": "short_term"
-            }
-            var options = {
-                method: "get",
-                url: 'https://api.spotify.com/v1/me/top/artists',
-                headers: { 'Authorization': 'Bearer ' + clientAccessToken },
-                json: true,
-                params: data
-            }
-            axios(options).then((resData) => {
-                let outputData = resData.data;
-                if(outputData["items"].length == 0) {
-                    data["time_range"] = "medium_term";
-                    axios(options).then((resData) => {
-                        let outputData = resData.data;
-                        if(outputData["items"].length == 0) {
-                            data["time_range"] = "long_term";
-                            axios(options).then((resData) => {
-                                let outputData = resData.data;
-                                if(outputData["items"].length == 0) {
-                                    res.send({success:false});
-                                } else {
-                                    outputData["items"].forEach(element => {
-                                        element["genres"].forEach(genre => {
-                                            if (spotifyGenres.includes(genre)) {
-                                                if (!genres.includes(genre)) {
-                                                    genres.push(genre);
-                                                }
-                                            }
-                                        });
-                                    })
-                                    resolve();
-                                }
-                            }).catch((err) => {
-                                console.log(err);
-                            });
-                        } else {
-                            outputData["items"].forEach(element => {
-                                element["genres"].forEach(genre => {
-                                    if (spotifyGenres.includes(genre)) {
-                                        if (!genres.includes(genre)) {
-                                            genres.push(genre);
-                                        }
-                                    }
-                                });
-                            })
-                            resolve();
-                        }
-                    }).catch((err) => {
-                        console.log(err);
-                    });
-                } else {
-                    outputData["items"].forEach(element => {
-                        element["genres"].forEach(genre => {
-                            if (spotifyGenres.includes(genre)) {
-                                if (!genres.includes(genre)) {
-                                    genres.push(genre);
-                                }
-                            }
-                        });
-                    })
-                    resolve();
-                }
-            }).catch((err) => {
-                console.log(err)
-            });
-        }).then(() => {
-
-
-            // Check Playlist Data
-            let playlistID = 0;
-            new Promise((resolve) => {
-                var options = {
-                    method: "get",
-                    url: 'https://api.spotify.com/v1/me/playlists',
-                    headers: { 'Authorization': 'Bearer ' + clientAccessToken },
-                    json: true
-                };
-                axios(options).then((response) => {
-                    let pageData = response.data;
-                    let found = false;
-                    pageData["items"].forEach(element => {
-                        if (element["name"] == playlistName) {
-                            resolve(element["id"]);
-                            found = true;
-                        }
-                    });
-                    if (!found) {
-                        createPlaylist(playlistName, userID, clientAccessToken).then((resp) => {
-                            resolve(resp);
-                        });
-                    }
-                }).catch((error) => {
-                    console.log(error);
-                });
-            }).then((resolution) => {
-                if (resolution == 0) {
-                    res.send({ sucess: false });
-                } else {
-                    playlistID = resolution;
-                    console.log(playlistID);
-
-                    // Get Playlist Data
-                    fetchPlaylistData(clientAccessToken, playlistID).then((data) => {
-                        currentPlaylistItems = data;
-
-                        // Now fetch recommended data for the user.
-                        genres.forEach(element => {
-                            console.log(`Fetching songs from ${element}`)
-                            fetchRecommendedForGenre(clientAccessToken, element, currentPlaylistItems).then((resp) => {
-                                // Lets add those songs to the playlist
-                                addSongsToPlaylist(clientAccessToken, playlistID, resp).then((response) => {
-                                });
-                            });
-                        });
-
-                    });
-
-                }
-            });
-
-        });
-
-    });
-    //res.send({ sucess: false });
-});
+// User Logout Handler
+app.get('/logout', (req, res) => {
+    res.clearCookie('clientID');
+    res.clearCookie('access_token');
+    res.clearCookie('refresh_token');
+    res.redirect('/');
+})
 
 console.log('Listening on 8888');
 app.listen(8888);
 
-function createPlaylist(playlistName, userID, clientAccessToken) {
-    return new Promise((resolve) => {
-        let data = JSON.stringify({
+async function generateRandomPlaylist(req, res) {
+    const { clientID, access_token } = req.cookies;
+
+    // Allow the ability to specify a playlist name using json payload
+    let spotifyPlaylistName = req.body.playlistName ?? "Node Generated";
+
+    let spotifyGenreSeeds = [];
+    let userGenres = [];
+
+    const genreSeedRequest = await axios({
+        method: "get",
+        url: 'https://api.spotify.com/v1/recommendations/available-genre-seeds',
+        headers: { 'Authorization': 'Bearer ' + access_token },
+        json: true
+    });
+
+    const genreSeedResponse = genreSeedRequest.data;
+    if (!genreSeedResponse) {
+        res.json({
+            "success": false
+        });
+        return;
+    }
+
+    spotifyGenreSeeds = genreSeedResponse.genres;
+
+    // Fetch the current users top artists
+    let timeRanges = [
+        "short_term",
+        "medium_term",
+        "long_term"
+    ];
+
+    // Iterate through the time ranges that are accepted by spotify
+    for await (let timeRange of timeRanges) {
+        if (userGenres.length > 0) {
+            continue;
+        }
+
+        const userTopArtists = await fetchUsersTopArtists(access_token, timeRange);
+        if (!userTopArtists) {
+            continue;
+        }
+
+        userTopArtists.forEach(artist => {
+            let artistGenres = artist['genres'] ?? [];
+            artistGenres.forEach(artistGenre => {
+                if (spotifyGenreSeeds.includes(artistGenre)) {
+                    if (!userGenres.includes(artistGenre)) {
+                        userGenres.push(artistGenre);
+                    }
+                }
+            });
+        });
+    }
+
+    // If the user has no top genres, they're probably a new account and as a result, can't be used for recommended
+    if (userGenres.length == 0) {
+        res.json({
+            "success": false
+        })
+        return;
+    }
+
+    // As the user has a timeframe allocated favourite genres, we can search for a playlist name
+    let spotifyPlaylistID = null;
+    let selectedPlaylistData = await fetchPlaylistDataOnName(spotifyPlaylistName, access_token);
+    if (!selectedPlaylistData) {
+        // Create a new playlist with that name
+        selectedPlaylistData = await createPlaylist(spotifyPlaylistName, clientID, access_token);
+    }
+    
+    // Assign Spotify Playlist ID if it exists after one attempt
+    spotifyPlaylistID = selectedPlaylistData.id ?? null;
+    if (!spotifyPlaylistID) {
+        res.json({
+            "success": false
+        })
+        return;
+    }
+
+    // Now that we know the playlist exists, we can start to populate it
+    const spotifyPlaylistContent = await fetchPlaylistData(access_token, spotifyPlaylistID);
+    if(!spotifyPlaylistContent) {
+        res.json({
+            "success": false
+        })
+        return;
+    }
+
+    for await (let genre of userGenres) {
+        const songRecommendations = await fetchRecommendedSongsForGenre(access_token, genre, spotifyPlaylistContent);
+        if(songRecommendations.length > 0) {
+            await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
+        }
+    }
+
+    res.json({
+        "success": true,
+        userGenres,
+        spotifyPlaylistID
+    });
+
+}
+
+async function fetchUsersTopArtists(clientAccessToken, timeRange = "short_term", limit = 50) {
+    var options = {
+        method: "get",
+        url: 'https://api.spotify.com/v1/me/top/artists',
+        headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+        json: true,
+        params: {
+            limit,
+            "time_range": timeRange
+        }
+    }
+
+    const userTopArtistRequest = await axios(options);
+    const userTopArtistResponse = userTopArtistRequest.data;
+    return userTopArtistResponse['items'] ?? null;
+}
+
+async function createPlaylist(playlistName, userID, clientAccessToken) {
+
+    let options = {
+        method: "post",
+        url: `https://api.spotify.com/v1/users/${userID}/playlists`,
+        headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+        json: true,
+        data: JSON.stringify({
             "name": playlistName,
             "description": "This playlist was automatically generated by Nazzer's Spotify Script.",
             "public": false
-        });
-        let options = {
-            method: "post",
-            url: `https://api.spotify.com/v1/users/${userID}/playlists`,
-            headers: { 'Authorization': 'Bearer ' + clientAccessToken },
-            json: true,
-            data
-        };
-        axios(options).then((response) => {
-            resolve(response.data.id);
-        }).catch((error) => {
-            console.log(error)
-        });
-    })
+        })
+    };
+    
+    const spotifyPlaylistRequest = await axios(options);
+    const spotifyPlaylistResponse = spotifyPlaylistRequest.data ?? null;
+    return spotifyPlaylistResponse;
 }
 
-function fetchPlaylistData(userToken, playlistID) {
-    return new Promise((res) => {
-        let currentPlaylistItems = [];
+async function fetchPlaylistDataOnName(playlistName, clientAccessToken) {
+    var options = {
+        method: "get",
+        url: 'https://api.spotify.com/v1/me/playlists',
+        headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+        json: true
+    };
 
-        let offset = 0;
-        let end = false;
-        let checkLength = () => {
-            if (!end) {
-                fetchPlaylistDataOffset(userToken, playlistID, offset).then(data => {
-                    if (data["items"].length > 0) {
-                        data["items"].forEach(element => {
-                            let track = element["track"];
-                            currentPlaylistItems.push(track["uri"]);
-                        });
-                        offset = offset + 100;
-                        checkLength();
-                    } else {
-                        end = true;
-                        res(currentPlaylistItems);
-                    }
+    const spotifyPlaylistRequest = await axios(options);
+    const spotifyPlaylistResponse = spotifyPlaylistRequest.data ?? null;
+
+    // If the playlist is null, the user has no playlists and so we should return null
+    if (!spotifyPlaylistResponse) {
+        return spotifyPlaylistResponse;
+    }
+
+    // Now that we have a collection of the users playlists, we should iterate through and see if a playlist with the name exists.
+    let playlistItems = spotifyPlaylistResponse['items'] ?? [];
+
+    // If the items array doesn't exist, we should return null
+    if (playlistItems && playlistItems.length == 0) {
+        return null;
+    }
+
+    let selectedPlaylist = playlistItems.filter(playlist => playlist.name.toLowerCase() == playlistName.toLowerCase());
+    if (selectedPlaylist && selectedPlaylist.length == 0) {
+        return null;
+    }
+
+    return selectedPlaylist[0];
+}
+
+async function fetchPlaylistData(userToken, playlistID) {
+    let currentPlaylistItems = [];
+
+    let offset = 0;
+    let end = false;
+    let checkLength = async () => {
+        if (!end) {
+            const data = await fetchPlaylistDataOffset(userToken, playlistID, offset)
+            if (data["items"].length > 0) {
+                data["items"].forEach(element => {
+                    let track = element["track"];
+                    currentPlaylistItems.push(track["uri"]);
                 });
+                offset = offset + 100;
+                await checkLength();
+            } else {
+                end = true;
             }
         }
-        checkLength();
-    });
+    }
+    await checkLength();
+
+    return currentPlaylistItems;
 }
 
-function fetchPlaylistDataOffset(userToken, playlistID, offset) {
-    return new Promise((res) => {
-        var options = {
-            method: "get",
-            url: `https://api.spotify.com/v1/playlists/${playlistID}/tracks?offset=${offset}`,
-            headers: { 'Authorization': 'Bearer ' + userToken },
-            json: true
-        }
-        axios(options).then((response) => {
-            let data = response.data;
-            res(data);
-        }).catch((error) => {
-            console.log(error);
-        });;
-    })
+async function fetchPlaylistDataOffset(userToken, playlistID, offset = 0) {
+    var options = {
+        method: "get",
+        url: `https://api.spotify.com/v1/playlists/${playlistID}/tracks?offset=${offset}`,
+        headers: { 'Authorization': 'Bearer ' + userToken },
+        json: true
+    }
+
+    const playlistDataRequest = await axios(options);
+    const playlistDataResponse = playlistDataRequest.data ?? null;
+
+    return playlistDataResponse;
 }
 
-function fetchRecommendedForGenre(userToken, genre, playlistContent) {
-    return new Promise((res) => {
-        let songs = [];
+async function fetchRecommendedSongsForGenre(userToken, genre, playlistContent) {
+    let songs = [];
 
-        data = {
-            seed_genres: genre,
-            limit: 100,
-            market: "GB"
-        };
+    data = {
+        seed_genres: genre,
+        limit: 100,
+        market: "GB"
+    };
 
-        let options = {
-            method: "get",
-            url: `https://api.spotify.com/v1/recommendations`,
-            headers: { 'Authorization': 'Bearer ' + userToken },
-            params: data,
-            json: true
+    let options = {
+        method: "get",
+        url: `https://api.spotify.com/v1/recommendations`,
+        headers: { 'Authorization': 'Bearer ' + userToken },
+        params: data,
+        json: true
+    }
+
+    const spotifyRecommendationRequest = await axios(options);
+    const spotifyRecommendationResponse = spotifyRecommendationRequest.data ?? null;
+
+    if(!spotifyRecommendationResponse) {
+        return [];
+    }
+
+    for await(let track of spotifyRecommendationResponse['tracks']) {
+        if (!playlistContent.includes(track["uri"])) {
+            songs.push(track["uri"]);
         }
-        axios(options).then((response) => {
-            let resData = response.data;
-            resData["tracks"].forEach(element => {
-                if (!playlistContent.includes(element["uri"])) {
-                    songs.push(element["uri"]);
-                }
-            });
-            res(songs);
-        }).catch((error) => {
-            console.log(error)
-        });
+    }
 
-    });
+    return songs;
 }
 
-function addSongsToPlaylist(userToken, playlistID, songs) {
-    return new Promise((resolve) => {
-        let options = {
-            method: "post",
-            url: `https://api.spotify.com/v1/playlists/${playlistID}/tracks`,
-            headers: { 'Authorization': 'Bearer ' + userToken },
-            data: JSON.stringify(songs),
-            json: true
-        }
-        axios(options).then((response) => {
-            let resData = response.data;
-            resolve(resData);
-        }).catch((error) => {
-            console.log(error);
-        });;
-    });
+async function addSongsToPlaylist(userToken, playlistID, songs) {
+    let options = {
+        method: "post",
+        url: `https://api.spotify.com/v1/playlists/${playlistID}/tracks`,
+        headers: { 'Authorization': 'Bearer ' + userToken },
+        data: JSON.stringify(songs),
+        json: true
+    }
+    await axios(options);
+    
 }

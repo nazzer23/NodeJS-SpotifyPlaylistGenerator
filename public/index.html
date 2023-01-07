@@ -30,7 +30,7 @@
             </div>
             <div id="oauth">
             </div>
-            <button class="btn btn-default" id="generatePlaylist">Generate a new playlist</button>
+            <button class="btn btn-default" id="generateRandomPlaylist">Generate Random Playlist</button>
         </div>
     </div>
 
@@ -52,6 +52,10 @@
 
     <script src="//cdnjs.cloudflare.com/ajax/libs/handlebars.js/2.0.0-alpha.1/handlebars.min.js"></script>
     <script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-cookie/3.0.1/js.cookie.min.js"
+        integrity="sha512-wT7uPE7tOP6w4o28u1DN775jYjHQApdBnib5Pho4RB0Pgd9y7eSkAV1BTqQydupYDB9GBhTcQQzyNMPMV3cAew=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
     <script>
         (function () {
 
@@ -76,58 +80,51 @@
             var params = getHashParams();
             var clientID = "";
 
-            var access_token = params.access_token,
-                refresh_token = params.refresh_token,
-                error = params.error;
+            var access_token = Cookies.get("access_token"),
+                refresh_token = Cookies.get("refresh_token"),
+                error = params.error ?? null
 
             if (error) {
-                alert('There was an error during the authentication');
-            } else {
-                if (access_token) {
+                alert(error);
+            }
 
-                    $.ajax({
-                        url: 'https://api.spotify.com/v1/me',
-                        headers: {
-                            'Authorization': 'Bearer ' + access_token
-                        },
-                        success: function (response) {
-                            userProfilePlaceholder.innerHTML = userProfileTemplate(response);
+            if (!access_token) {
+                // render initial screen
+                $('#login').show();
+                $('#loggedin').hide();
+                return;
+            }
 
-                            clientID = response.id;
+            $.ajax({
+                url: 'https://api.spotify.com/v1/me',
+                headers: {
+                    'Authorization': 'Bearer ' + access_token
+                },
+                success: function (response) {
+                    userProfilePlaceholder.innerHTML = userProfileTemplate(response);
+                    $('#login').hide();
+                    $('#loggedin').show();
 
-                            $('#login').hide();
-                            $('#loggedin').show();
-                        }
-                    });
-                } else {
-                    // render initial screen
-                    $('#login').show();
-                    $('#loggedin').hide();
-                }
-
-                document.getElementById('generatePlaylist').addEventListener('click', function () {
-                    $.ajax({
-                        url: '/refresh_token',
-                        data: {
-                            'refresh_token': refresh_token
-                        },
-                    }).done(function (data) {
-                        access_token = data.access_token;
+                    $('#generateRandomPlaylist').click(function () {
                         $.ajax({
-                            url:'/generate_playlist',
-                            method:'post',
-                            data: JSON.stringify({
-                                'clientID':clientID,
-                                'access_token':access_token
-                            }),
-                            contentType: "application/json; charset=UTF-8",
-                            dataType: 'json'
-                        }).done((data) => {
-                            console.log(data)
+                            url: '/refresh_token',
+                            data: {
+                                'refresh_token': refresh_token
+                            },
+                        }).done(function (data) {
+                            access_token = data.access_token;
+                            $.ajax({
+                                url: '/generateRandomPlaylist',
+                                method: 'post',
+                                contentType: "application/json; charset=UTF-8",
+                                dataType: 'json'
+                            }).done((data) => {
+                                console.log(data)
+                            });
                         });
                     });
-                }, false);
-            }
+                }
+            });
         })();
     </script>
 </body>
