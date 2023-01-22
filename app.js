@@ -181,6 +181,7 @@ async function generateRandomPlaylist(req, res) {
 
     let spotifyGenreSeeds = [];
     let userGenres = [];
+    let userTopTracks = [];
 
     const genreSeedRequest = await axios({
         method: "get",
@@ -207,30 +208,58 @@ async function generateRandomPlaylist(req, res) {
     ];
 
     // Iterate through the time ranges that are accepted by spotify
+    // for await (let timeRange of timeRanges) {
+    //     if (userGenres.length > 0) {
+    //         continue;
+    //     }
+
+    //     const userTopArtists = await fetchUsersTopOnMode(access_token, timeRange, 50, "artists");
+    //     if (!userTopArtists) {
+    //         continue;
+    //     }
+
+    //     userTopArtists.forEach(artist => {
+    //         let artistGenres = artist['genres'] ?? [];
+    //         artistGenres.forEach(artistGenre => {
+    //             if (spotifyGenreSeeds.includes(artistGenre)) {
+    //                 if (!userGenres.includes(artistGenre)) {
+    //                     userGenres.push(artistGenre);
+    //                 }
+    //             }
+    //         });
+    //     });
+    // }
+
     for await (let timeRange of timeRanges) {
-        if (userGenres.length > 0) {
+        if (userTopTracks.length > 0) {
             continue;
         }
 
-        const userTopArtists = await fetchUsersTopArtists(access_token, timeRange);
-        if (!userTopArtists) {
+        const topTracks = await fetchUsersTopOnMode(access_token, timeRange, 50, "tracks");
+        if (!topTracks) {
             continue;
         }
+        
+        topTracks.forEach(song => {
+            if(userTopTracks.length < 5) {
+                userTopTracks.push(song['id'])
+            }
+        })
 
-        userTopArtists.forEach(artist => {
-            let artistGenres = artist['genres'] ?? [];
-            artistGenres.forEach(artistGenre => {
-                if (spotifyGenreSeeds.includes(artistGenre)) {
-                    if (!userGenres.includes(artistGenre)) {
-                        userGenres.push(artistGenre);
-                    }
-                }
-            });
-        });
+        // topTracks.forEach(artist => {
+        //     let artistGenres = artist['genres'] ?? [];
+        //     artistGenres.forEach(artistGenre => {
+        //         if (spotifyGenreSeeds.includes(artistGenre)) {
+        //             if (!userGenres.includes(artistGenre)) {
+        //                 userGenres.push(artistGenre);
+        //             }
+        //         }
+        //     });
+        // });
     }
 
     // If the user has no top genres, they're probably a new account and as a result, can't be used for recommended
-    if (userGenres.length == 0) {
+    if (userTopTracks.length == 0) {
         res.json({
             "success": false
         })
@@ -263,18 +292,29 @@ async function generateRandomPlaylist(req, res) {
         return;
     }
 
-    for await (let genre of userGenres) {
-        let songRecommendations = await fetchRecommendedSongsForGenre(access_token, (country ?? "GB"), genre, spotifyPlaylistContent);
-        let maxAttemptsToGenre = 0;
-        while((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre < 3)) {
-            songRecommendations.concat(await fetchRecommendedSongsForGenre(access_token, (country ?? "GB"), genre, spotifyPlaylistContent, songRecommendations));
-            maxAttemptsToGenre++;
-        }
-        songRecommendations = songRecommendations.slice(0, GENRE_SONG_CHUNK);
-        if(songRecommendations.length > 0) {
-            await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
-        }
+    let songRecommendations = await fetchRecommendedSongsForTopTracks(access_token, (country ?? "GB"), userTopTracks, spotifyPlaylistContent);
+    let maxAttemptsToGenre = 0;
+    while((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre < 3)) {
+        songRecommendations.concat(await fetchRecommendedSongsForTopTracks(access_token, (country ?? "GB"), userTopTracks, spotifyPlaylistContent, songRecommendations));
+        maxAttemptsToGenre++;
     }
+    songRecommendations = songRecommendations.slice(0, GENRE_SONG_CHUNK);
+    if(songRecommendations.length > 0) {
+        await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
+    }
+
+    // for await (let genre of userGenres) {
+    //     let songRecommendations = await fetchRecommendedSongsForGenre(access_token, (country ?? "GB"), genre, spotifyPlaylistContent);
+    //     let maxAttemptsToGenre = 0;
+    //     while((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre < 3)) {
+    //         songRecommendations.concat(await fetchRecommendedSongsForGenre(access_token, (country ?? "GB"), genre, spotifyPlaylistContent, songRecommendations));
+    //         maxAttemptsToGenre++;
+    //     }
+    //     songRecommendations = songRecommendations.slice(0, GENRE_SONG_CHUNK);
+    //     if(songRecommendations.length > 0) {
+    //         await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
+    //     }
+    // }
 
     res.json({
         "success": true,
@@ -284,10 +324,10 @@ async function generateRandomPlaylist(req, res) {
 
 }
 
-async function fetchUsersTopArtists(clientAccessToken, timeRange = "short_term", limit = 50) {
+async function fetchUsersTopOnMode(clientAccessToken, timeRange = "short_term", limit = 50, topMode = "artists") {
     var options = {
         method: "get",
-        url: 'https://api.spotify.com/v1/me/top/artists',
+        url: `https://api.spotify.com/v1/me/top/${topMode}`,
         headers: { 'Authorization': 'Bearer ' + clientAccessToken },
         json: true,
         params: {
@@ -389,6 +429,43 @@ async function fetchPlaylistDataOffset(userToken, playlistID, offset = 0) {
     const playlistDataResponse = playlistDataRequest.data ?? null;
 
     return playlistDataResponse;
+}
+
+async function fetchRecommendedSongsForTopTracks(userToken, userCountry, tracksSeeds = [], playlistContent, songRecommendations = []) {
+    let songs = songRecommendations ?? [];
+
+    data = {
+        seed_tracks: tracksSeeds.join(","),
+        limit: 100,
+        market: userCountry
+    };
+
+    let options = {
+        method: "get",
+        url: `https://api.spotify.com/v1/recommendations`,
+        headers: { 'Authorization': 'Bearer ' + userToken },
+        params: data,
+        json: true
+    }
+
+    const spotifyRecommendationRequest = await axios(options);
+    const spotifyRecommendationResponse = spotifyRecommendationRequest.data ?? null;
+
+    if(!spotifyRecommendationResponse) {
+        return [];
+    }
+
+    for await(let track of spotifyRecommendationResponse['tracks']) {
+        if (!playlistContent.includes(track["uri"])) {
+            if(!songRecommendations.includes(track["uri"])) {
+                if(!songs.includes(track["uri"])) {
+                    songs.push(track["uri"]);
+                }
+            }
+        }
+    }
+
+    return songs;
 }
 
 async function fetchRecommendedSongsForGenre(userToken, userCountry, genre, playlistContent, songRecommendations = []) {
