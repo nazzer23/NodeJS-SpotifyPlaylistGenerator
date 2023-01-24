@@ -36,7 +36,13 @@
             </div>
             <div class="buttons">
                 <a class="btn btn-default" href="/logout">Logout</a>
-                <button class="btn btn-default" id="generateRandomPlaylist">Generate Random Playlist</button>
+                <input type="text" id="spotifyPlaylistName"/>
+                <select id="spotifyTimeranges">
+                    <option value="short_range">Short Range</option>
+                    <option value="medium_range">Medium Range</option>
+                    <option value="long_range">Long Range</option>
+                </select>
+                <button class="btn btn-default" id="generateRandomPlaylist">Generate Random Playlist On Tracks</button>
             </div>
         </div>
     </div>
@@ -123,9 +129,14 @@
                                 url: '/generateRandomPlaylist',
                                 method: 'post',
                                 contentType: "application/json; charset=UTF-8",
-                                dataType: 'json'
+                                dataType: 'json',
+                                data: JSON.stringify({
+                                    timeRange: $("#spotifyTimeranges").val(),
+                                    playlistName: $("#spotifyPlaylistName").val(),
+                                    type:"tracks"
+                                })
                             }).done((data) => {
-                                console.log(data)
+                                alert(data.success ? `Playlist ${data.spotifyPlaylistName} generated` : `Something went wrong when generating your playlist.`);
                             });
                         });
                     });
