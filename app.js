@@ -178,17 +178,17 @@ async function generateRandomPlaylist(req, res) {
 
     // Allow the ability to specify a playlist name using json payload
     let spotifyPlaylistName = req.body.playlistName;
-    if(!spotifyPlaylistName || (spotifyPlaylistName.length <= 0)) {
+    if (!spotifyPlaylistName || (spotifyPlaylistName.length <= 0)) {
         spotifyPlaylistName = "Randomly Generated Playlist";
     }
 
-    let acceptableTypes = ["tracks"];
+    let acceptableTypes = ["tracks", "genres", "artists"];
     let selectedType = req.body.type;
-    if(!acceptableTypes.includes(selectedType)) {
+    if (!acceptableTypes.includes(selectedType)) {
         selectedType = acceptableTypes[0];
     }
 
-    let userTrackIDs = [];
+    let queryIDs = [];
 
     // Fetch the current users top artists
     let timeRanges = [
@@ -196,38 +196,56 @@ async function generateRandomPlaylist(req, res) {
         "medium_term",
         "long_term"
     ];
-    if(req.body.timeRange) {
-        if(timeRanges.includes(req.body.timeRange)) {
+    if (req.body.timeRange) {
+        if (timeRanges.includes(req.body.timeRange)) {
             timeRanges = [req.body.timeRange];
         }
     }
 
+    // Used to keep a track of which artist ids have already been used.
+    let artistsUsed = [];
+    let selectedModeType = (selectedType == "tracks") ? 'tracks' : 'artists';
     for await (let timeRange of timeRanges) {
-        if (userTrackIDs.length > 0) {
+        if (queryIDs.length > 5) {
             continue;
         }
 
-        // Used to keep a track of which artist ids have already been used.
-        let artistsUsed = [];
-
-        const seeds = await fetchUsersTopOnMode(access_token, timeRange, 10, "tracks");
+        const seeds = await fetchUsersTopOnMode(access_token, timeRange, 10, selectedModeType);
         if (!seeds) {
             continue;
         }
-        
+
         seeds.forEach(song => {
-            if(userTrackIDs.length < 5) {
-                if(!artistsUsed.includes(song['artists'][0]['id'])) {
+            if (queryIDs.length >= 5) {
+                return;
+            }
+            if (selectedModeType == "tracks") {
+                if (!artistsUsed.includes(song['artists'][0]['id'])) {
                     console.log(`${song['name']} - ${song['artists'][0]['name']}`)
                     artistsUsed.push(song['artists'][0]['id']);
-                    userTrackIDs.push(song['id'])
+                    queryIDs.push(song['id']);
+                }
+            } else if (selectedType == "genres") {
+                song['genres'].forEach(genre => {
+                    if (queryIDs.length >= 5) {
+                        return;
+                    }
+                    if (!queryIDs.includes(genre)) {
+                        console.log(genre);
+                        queryIDs.push(genre);
+                    }
+                })
+            } else if (selectedType == "artists") {
+                if (!queryIDs.includes(song['id'])) {
+                    console.log(`${song['name']}`)
+                    queryIDs.push(song['id']);
                 }
             }
         });
     }
 
-    // If the user has no top genres, they're probably a new account and as a result, can't be used for recommended
-    if (userTrackIDs.length == 0) {
+    // If the user has no tracks, they're probably a new account and as a result, can't be used for recommended
+    if (queryIDs.length == 0) {
         res.json({
             "success": false
         })
@@ -241,7 +259,7 @@ async function generateRandomPlaylist(req, res) {
         // Create a new playlist with that name
         selectedPlaylistData = await createPlaylist(spotifyPlaylistName, clientID, access_token);
     }
-    
+
     // Assign Spotify Playlist ID if it exists after one attempt
     spotifyPlaylistID = selectedPlaylistData.id ?? null;
     if (!spotifyPlaylistID) {
@@ -253,7 +271,7 @@ async function generateRandomPlaylist(req, res) {
 
     // Now that we know the playlist exists, we can start to populate it
     const spotifyPlaylistContent = await fetchPlaylistData(access_token, spotifyPlaylistID);
-    if(!spotifyPlaylistContent) {
+    if (!spotifyPlaylistContent) {
         res.json({
             "success": false
         })
@@ -261,14 +279,14 @@ async function generateRandomPlaylist(req, res) {
     }
 
     // START: Recommendations are used on Top Tracks
-    let songRecommendations = await fetchRecommendedSongs(access_token, (country ?? "GB"), "seed_tracks", userTrackIDs, spotifyPlaylistContent);
+    let songRecommendations = await fetchRecommendedSongs(access_token, (country ?? "GB"), `seed_${selectedType}`, queryIDs, spotifyPlaylistContent);
     let maxAttemptsToGenre = 0;
-    while((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre < 3)) {
-        songRecommendations.concat(await fetchRecommendedSongs(access_token, (country ?? "GB"), "seed_tracks", userTrackIDs, spotifyPlaylistContent, songRecommendations));
+    while ((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre < 3)) {
+        songRecommendations.concat(await fetchRecommendedSongs(access_token, (country ?? "GB"), `seed_${selectedType}`, queryIDs, spotifyPlaylistContent, songRecommendations));
         maxAttemptsToGenre++;
     }
     songRecommendations = songRecommendations.slice(0, GENRE_SONG_CHUNK);
-    if(songRecommendations.length > 0) {
+    if (songRecommendations.length > 0) {
         await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
     }
     // END: Recommendations are used on Top Tracks
@@ -278,8 +296,6 @@ async function generateRandomPlaylist(req, res) {
         spotifyPlaylistID,
         spotifyPlaylistName
     });
-
-    console.log("Successfully generated playlist");
 }
 
 async function fetchUsersTopOnMode(clientAccessToken, timeRange = "short_term", limit = 50, topMode = "artists") {
@@ -312,7 +328,7 @@ async function createPlaylist(playlistName, userID, clientAccessToken) {
             "public": false
         })
     };
-    
+
     const spotifyPlaylistRequest = await axios(options);
     const spotifyPlaylistResponse = spotifyPlaylistRequest.data ?? null;
     return spotifyPlaylistResponse;
@@ -409,14 +425,14 @@ async function fetchRecommendedSongs(userToken, userCountry, typeOfSeeds = "seed
     const spotifyRecommendationRequest = await axios(options);
     const spotifyRecommendationResponse = spotifyRecommendationRequest.data ?? null;
 
-    if(!spotifyRecommendationResponse) {
+    if (!spotifyRecommendationResponse) {
         return [];
     }
 
-    for await(let track of spotifyRecommendationResponse['tracks']) {
+    for await (let track of spotifyRecommendationResponse['tracks']) {
         if (!playlistContent.includes(track["uri"])) {
-            if(!songRecommendations.includes(track["uri"])) {
-                if(!songs.includes(track["uri"])) {
+            if (!songRecommendations.includes(track["uri"])) {
+                if (!songs.includes(track["uri"])) {
                     songs.push(track["uri"]);
                 }
             }
@@ -438,5 +454,5 @@ async function addSongsToPlaylist(userToken, playlistID, songs) {
             json: true
         }
         await axios(options);
-    }    
+    }
 }
