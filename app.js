@@ -210,15 +210,14 @@ async function generateRandomPlaylist(req, res) {
             continue;
         }
 
+        const totalSongs = selectedModeType == "genres" ? 50 : 10;
+
         const seeds = await fetchUsersTopOnMode(access_token, timeRange, 10, selectedModeType);
         if (!seeds) {
             continue;
         }
 
         seeds.forEach(song => {
-            if (queryIDs.length >= 5) {
-                return;
-            }
             if (selectedModeType == "tracks") {
                 if (!artistsUsed.includes(song['artists'][0]['id'])) {
                     console.log(`${song['name']} - ${song['artists'][0]['name']}`)
@@ -227,9 +226,6 @@ async function generateRandomPlaylist(req, res) {
                 }
             } else if (selectedType == "genres") {
                 song['genres'].forEach(genre => {
-                    if (queryIDs.length >= 5) {
-                        return;
-                    }
                     if (!queryIDs.includes(genre)) {
                         console.log(genre);
                         queryIDs.push(genre);
@@ -408,32 +404,36 @@ async function fetchPlaylistDataOffset(userToken, playlistID, offset = 0) {
 async function fetchRecommendedSongs(userToken, userCountry, typeOfSeeds = "seed_tracks", seeds = [], playlistContent, songRecommendations = []) {
     let songs = songRecommendations ?? [];
 
-    data = {
-        [typeOfSeeds]: seeds.join(","),
-        limit: 100,
-        market: userCountry
-    };
+    const chunkSize = 5; // Spotify prevents anything greater than this
+    for (let i = 0; i < seeds.length; i += chunkSize) {
 
-    let options = {
-        method: "get",
-        url: `https://api.spotify.com/v1/recommendations`,
-        headers: { 'Authorization': 'Bearer ' + userToken },
-        params: data,
-        json: true
-    }
+        data = {
+            [typeOfSeeds]: seeds.slice(i, i + chunkSize).join(","),
+            limit: 100,
+            market: userCountry
+        };
 
-    const spotifyRecommendationRequest = await axios(options);
-    const spotifyRecommendationResponse = spotifyRecommendationRequest.data ?? null;
+        let options = {
+            method: "get",
+            url: `https://api.spotify.com/v1/recommendations`,
+            headers: { 'Authorization': 'Bearer ' + userToken },
+            params: data,
+            json: true
+        }
 
-    if (!spotifyRecommendationResponse) {
-        return [];
-    }
+        const spotifyRecommendationRequest = await axios(options);
+        const spotifyRecommendationResponse = spotifyRecommendationRequest.data ?? null;
 
-    for await (let track of spotifyRecommendationResponse['tracks']) {
-        if (!playlistContent.includes(track["uri"])) {
-            if (!songRecommendations.includes(track["uri"])) {
-                if (!songs.includes(track["uri"])) {
-                    songs.push(track["uri"]);
+        if (!spotifyRecommendationResponse) {
+            return [];
+        }
+
+        for await (let track of spotifyRecommendationResponse['tracks']) {
+            if (!playlistContent.includes(track["uri"])) {
+                if (!songRecommendations.includes(track["uri"])) {
+                    if (!songs.includes(track["uri"])) {
+                        songs.push(track["uri"]);
+                    }
                 }
             }
         }
