@@ -435,7 +435,11 @@ async function performSpotifyRequest(userToken = null, url, method = "get", para
     };
 
     if (params) {
-        options['params'] = params;
+        if (method === "get") {
+            options['params'] = params;
+        } else {
+            options['data'] = JSON.stringify(params);
+        }
     }
 
     return axios(options);
