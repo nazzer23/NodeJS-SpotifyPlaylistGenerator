@@ -8,20 +8,20 @@ let cookieParser = require('cookie-parser');
 
 const app = express();
 
-const { CLIENT_ID, CLIENT_SECRET, CALLBACK_URL, WEB_PORT, GENRE_SONG_CHUNK } = process.env;
+const {CLIENT_ID, CLIENT_SECRET, CALLBACK_URL, WEB_PORT, GENRE_SONG_CHUNK} = process.env;
 let redirectUri = `${CALLBACK_URL}/callback`;
 
 let generateRandomString = function (length) {
-    var text = '';
-    var possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let text = '';
+    let possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
-    for (var i = 0; i < length; i++) {
+    for (let i = 0; i < length; i++) {
         text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
     return text;
 };
 
-var stateKey = 'spotify_auth_state';
+let stateKey = 'spotify_auth_state';
 
 app.use(express.static(__dirname + '/public'))
     .use(cors())
@@ -30,11 +30,11 @@ app.use(express.static(__dirname + '/public'))
 
 app.get('/login', function (req, res) {
 
-    var state = generateRandomString(16);
+    let state = generateRandomString(16);
     res.cookie(stateKey, state);
 
     // your application requests authorization
-    var permissionScopes = [
+    let permissionScopes = [
         'user-read-private',
         'user-read-email',
         'playlist-read-collaborative',
@@ -43,7 +43,7 @@ app.get('/login', function (req, res) {
         'playlist-modify-public',
         'user-top-read'
     ];
-    var scope = permissionScopes.join(' ');
+    let scope = permissionScopes.join(' ');
     res.redirect('https://accounts.spotify.com/authorize?' +
         querystring.stringify({
             response_type: 'code',
@@ -59,9 +59,9 @@ app.get('/callback', async (req, res) => {
     // your application requests refresh and access tokens
     // after checking the state parameter
 
-    var code = req.query.code || null;
-    var state = req.query.state || null;
-    var storedState = req.cookies ? req.cookies[stateKey] : null;
+    let code = req.query.code || null;
+    let state = req.query.state || null;
+    let storedState = req.cookies ? req.cookies[stateKey] : null;
 
     if (state === null || state !== storedState) {
         res.redirect('/#' +
@@ -73,7 +73,7 @@ app.get('/callback', async (req, res) => {
     }
 
     res.clearCookie(stateKey);
-    var authOptions = {
+    let authOptions = {
         method: 'post',
         url: 'https://accounts.spotify.com/api/token',
         params: {
@@ -103,13 +103,13 @@ app.get('/callback', async (req, res) => {
 
     let body = authorizationResponse.data;
 
-    var access_token = body.access_token,
+    let access_token = body.access_token,
         refresh_token = body.refresh_token;
 
-    var options = {
+    let options = {
         method: "get",
         url: 'https://api.spotify.com/v1/me',
-        headers: { 'Authorization': 'Bearer ' + access_token },
+        headers: {'Authorization': 'Bearer ' + access_token},
         json: true
     };
 
@@ -122,22 +122,16 @@ app.get('/callback', async (req, res) => {
     res.cookie("access_token", access_token);
     res.cookie("refresh_token", refresh_token);
     res.redirect("/");
-    return;
-    // res.redirect('/#' +
-    //     querystring.stringify({
-    //         access_token: access_token,
-    //         refresh_token: refresh_token
-    //     }));
 });
 
 app.get('/refresh_token', function (req, res) {
 
     // requesting access token from refresh token
-    var refresh_token = req.cookies ? req.cookies['refresh_token'] : null;
-    var authOptions = {
+    let refresh_token = req.cookies ? req.cookies['refresh_token'] : null;
+    let authOptions = {
         method: "post",
         url: 'https://accounts.spotify.com/api/token',
-        headers: { 'Authorization': 'Basic ' + (Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64')) },
+        headers: {'Authorization': 'Basic ' + (Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64'))},
         params: {
             grant_type: 'refresh_token',
             refresh_token: refresh_token
@@ -148,7 +142,7 @@ app.get('/refresh_token', function (req, res) {
     axios(authOptions).then((response) => {
         let body = response.data;
         if (response.status === 200) {
-            var access_token = body.access_token;
+            let access_token = body.access_token;
             res.cookie("access_token", access_token);
             res.json({
                 'access_token': access_token
@@ -174,7 +168,7 @@ console.log(`Listening on ${WEB_PORT} with callback URL ${CALLBACK_URL}`);
 app.listen(WEB_PORT);
 
 async function generateRandomPlaylist(req, res) {
-    const { clientID, access_token, country } = req.cookies;
+    const {clientID, access_token, country} = req.cookies;
 
     // Allow the ability to specify a playlist name using json payload
     let spotifyPlaylistName = req.body.playlistName;
@@ -204,44 +198,50 @@ async function generateRandomPlaylist(req, res) {
 
     // Used to keep a track of which artist ids have already been used.
     let artistsUsed = [];
-    let selectedModeType = (selectedType == "tracks") ? 'tracks' : 'artists';
+    let selectedModeType = (selectedType === "tracks") ? 'tracks' : 'artists';
     for await (let timeRange of timeRanges) {
-        if (queryIDs.length > 5) {
+        if (queryIDs.length > 50) {
             continue;
         }
 
-        const totalSongs = selectedModeType == "genres" ? 50 : 10;
+        const totalSongs = selectedModeType === "genres" ? 50 : 10;
 
-        const seeds = await fetchUsersTopOnMode(access_token, timeRange, 10, selectedModeType);
-        if (!seeds) {
-            continue;
-        }
+        for (let i = 0; i < 20; i++) {
 
-        seeds.forEach(song => {
-            if (selectedModeType == "tracks") {
-                if (!artistsUsed.includes(song['artists'][0]['id'])) {
-                    console.log(`${song['name']} - ${song['artists'][0]['name']}`)
+            const seeds = await fetchUsersTopOnMode(access_token, timeRange, totalSongs, selectedModeType, (i * totalSongs));
+            if (!seeds) {
+                continue;
+            }
+            if (seeds && seeds.length < 0) {
+                continue;
+            }
+
+            for (let song of seeds) {
+                if (selectedModeType === "tracks") {
+                    if (artistsUsed.includes(song['artists'][0]['id'])) {
+                        continue;
+                    }
                     artistsUsed.push(song['artists'][0]['id']);
                     queryIDs.push(song['id']);
-                }
-            } else if (selectedType == "genres") {
-                song['genres'].forEach(genre => {
-                    if (!queryIDs.includes(genre)) {
-                        console.log(genre);
+                } else if (selectedType === "genres") {
+                    for (let genre of song['genres']) {
+                        if (queryIDs.includes(genre)) {
+                            continue;
+                        }
                         queryIDs.push(genre);
                     }
-                })
-            } else if (selectedType == "artists") {
-                if (!queryIDs.includes(song['id'])) {
-                    console.log(`${song['name']}`)
+                } else if (selectedType === "artists") {
+                    if (queryIDs.includes(song['id'])) {
+                        continue;
+                    }
                     queryIDs.push(song['id']);
                 }
             }
-        });
+        }
     }
 
     // If the user has no tracks, they're probably a new account and as a result, can't be used for recommended
-    if (queryIDs.length == 0) {
+    if (queryIDs.length === 0) {
         res.json({
             "success": false
         })
@@ -249,15 +249,14 @@ async function generateRandomPlaylist(req, res) {
     }
 
     // As the user has a timeframe allocated favourite genres, we can search for a playlist name
-    let spotifyPlaylistID = null;
-    let selectedPlaylistData = await fetchPlaylistDataOnName(spotifyPlaylistName, access_token);
-    if (!selectedPlaylistData) {
+    let selectedPlaylistData = null;
+    while (!selectedPlaylistData) {
         // Create a new playlist with that name
         selectedPlaylistData = await createPlaylist(spotifyPlaylistName, clientID, access_token);
     }
 
     // Assign Spotify Playlist ID if it exists after one attempt
-    spotifyPlaylistID = selectedPlaylistData.id ?? null;
+    let spotifyPlaylistID = selectedPlaylistData.id ?? null;
     if (!spotifyPlaylistID) {
         res.json({
             "success": false
@@ -275,14 +274,17 @@ async function generateRandomPlaylist(req, res) {
     }
 
     // START: Recommendations are used on Top Tracks
-    let songRecommendations = await fetchRecommendedSongs(access_token, (country ?? "GB"), `seed_${selectedType}`, queryIDs, spotifyPlaylistContent);
+    let songRecommendations = [];
     let maxAttemptsToGenre = 0;
-    while ((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre < 3)) {
+    while ((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre <= 10)) {
         songRecommendations.concat(await fetchRecommendedSongs(access_token, (country ?? "GB"), `seed_${selectedType}`, queryIDs, spotifyPlaylistContent, songRecommendations));
         maxAttemptsToGenre++;
     }
+
+    // We want to slice the max song chunk size.
     songRecommendations = songRecommendations.slice(0, GENRE_SONG_CHUNK);
-    if (songRecommendations.length > 0) {
+
+    if (songRecommendations && songRecommendations.length > 0) {
         await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
     }
     // END: Recommendations are used on Top Tracks
@@ -294,15 +296,16 @@ async function generateRandomPlaylist(req, res) {
     });
 }
 
-async function fetchUsersTopOnMode(clientAccessToken, timeRange = "short_term", limit = 50, topMode = "artists") {
-    var options = {
+async function fetchUsersTopOnMode(clientAccessToken, time_range = "short_term", limit = 50, topMode = "artists", offset = 0) {
+    let options = {
         method: "get",
         url: `https://api.spotify.com/v1/me/top/${topMode}`,
-        headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+        headers: {'Authorization': 'Bearer ' + clientAccessToken},
         json: true,
         params: {
             limit,
-            "time_range": timeRange
+            time_range,
+            offset
         }
     }
 
@@ -316,7 +319,7 @@ async function createPlaylist(playlistName, userID, clientAccessToken) {
     let options = {
         method: "post",
         url: `https://api.spotify.com/v1/users/${userID}/playlists`,
-        headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+        headers: {'Authorization': 'Bearer ' + clientAccessToken},
         json: true,
         data: JSON.stringify({
             "name": playlistName,
@@ -326,15 +329,14 @@ async function createPlaylist(playlistName, userID, clientAccessToken) {
     };
 
     const spotifyPlaylistRequest = await axios(options);
-    const spotifyPlaylistResponse = spotifyPlaylistRequest.data ?? null;
-    return spotifyPlaylistResponse;
+    return spotifyPlaylistRequest.data ?? null;
 }
 
 async function fetchPlaylistDataOnName(playlistName, clientAccessToken) {
-    var options = {
+    let options = {
         method: "get",
         url: 'https://api.spotify.com/v1/me/playlists',
-        headers: { 'Authorization': 'Bearer ' + clientAccessToken },
+        headers: {'Authorization': 'Bearer ' + clientAccessToken},
         json: true
     };
 
@@ -350,12 +352,12 @@ async function fetchPlaylistDataOnName(playlistName, clientAccessToken) {
     let playlistItems = spotifyPlaylistResponse['items'] ?? [];
 
     // If the items array doesn't exist, we should return null
-    if (playlistItems && playlistItems.length == 0) {
+    if (playlistItems && playlistItems.length === 0) {
         return null;
     }
 
-    let selectedPlaylist = playlistItems.filter(playlist => playlist.name.toLowerCase() == playlistName.toLowerCase());
-    if (selectedPlaylist && selectedPlaylist.length == 0) {
+    let selectedPlaylist = playlistItems.filter(playlist => playlist.name.toLowerCase() === playlistName.toLowerCase());
+    if (selectedPlaylist && selectedPlaylist.length === 0) {
         return null;
     }
 
@@ -368,19 +370,22 @@ async function fetchPlaylistData(userToken, playlistID) {
     let offset = 0;
     let end = false;
     let checkLength = async () => {
-        if (!end) {
-            const data = await fetchPlaylistDataOffset(userToken, playlistID, offset)
-            if (data["items"].length > 0) {
-                data["items"].forEach(element => {
-                    let track = element["track"];
-                    currentPlaylistItems.push(track["uri"]);
-                });
-                offset = offset + 100;
-                await checkLength();
-            } else {
-                end = true;
-            }
+        if (end) {
+            return;
         }
+        const data = await fetchPlaylistDataOffset(userToken, playlistID, offset)
+        if (!(data && data["items"] && data["items"]?.length > 0)) {
+            end = true;
+            return;
+        }
+
+        for (let element of data["items"]) {
+            let track = element["track"];
+            currentPlaylistItems.push(track["uri"]);
+        }
+
+        offset = offset + 100;
+        await checkLength();
     }
     await checkLength();
 
@@ -388,17 +393,15 @@ async function fetchPlaylistData(userToken, playlistID) {
 }
 
 async function fetchPlaylistDataOffset(userToken, playlistID, offset = 0) {
-    var options = {
+    let options = {
         method: "get",
         url: `https://api.spotify.com/v1/playlists/${playlistID}/tracks?offset=${offset}`,
-        headers: { 'Authorization': 'Bearer ' + userToken },
+        headers: {'Authorization': 'Bearer ' + userToken},
         json: true
     }
 
     const playlistDataRequest = await axios(options);
-    const playlistDataResponse = playlistDataRequest.data ?? null;
-
-    return playlistDataResponse;
+    return playlistDataRequest.data ?? null;
 }
 
 async function fetchRecommendedSongs(userToken, userCountry, typeOfSeeds = "seed_tracks", seeds = [], playlistContent, songRecommendations = []) {
@@ -407,7 +410,7 @@ async function fetchRecommendedSongs(userToken, userCountry, typeOfSeeds = "seed
     const chunkSize = 5; // Spotify prevents anything greater than this
     for (let i = 0; i < seeds.length; i += chunkSize) {
 
-        data = {
+        let params = {
             [typeOfSeeds]: seeds.slice(i, i + chunkSize).join(","),
             limit: 100,
             market: userCountry
@@ -416,8 +419,8 @@ async function fetchRecommendedSongs(userToken, userCountry, typeOfSeeds = "seed
         let options = {
             method: "get",
             url: `https://api.spotify.com/v1/recommendations`,
-            headers: { 'Authorization': 'Bearer ' + userToken },
-            params: data,
+            headers: {'Authorization': 'Bearer ' + userToken},
+            params,
             json: true
         }
 
@@ -429,13 +432,16 @@ async function fetchRecommendedSongs(userToken, userCountry, typeOfSeeds = "seed
         }
 
         for await (let track of spotifyRecommendationResponse['tracks']) {
-            if (!playlistContent.includes(track["uri"])) {
-                if (!songRecommendations.includes(track["uri"])) {
-                    if (!songs.includes(track["uri"])) {
-                        songs.push(track["uri"]);
-                    }
-                }
+            if (playlistContent.includes(track["uri"])) {
+                continue;
             }
+            if (songRecommendations.includes(track["uri"])) {
+                continue;
+            }
+            if (songs.includes(track["uri"])) {
+                continue;
+            }
+            songs.push(track["uri"]);
         }
     }
 
@@ -449,7 +455,7 @@ async function addSongsToPlaylist(userToken, playlistID, songs) {
         let options = {
             method: "post",
             url: `https://api.spotify.com/v1/playlists/${playlistID}/tracks`,
-            headers: { 'Authorization': 'Bearer ' + userToken },
+            headers: {'Authorization': 'Bearer ' + userToken},
             data: JSON.stringify(chunk),
             json: true
         }
