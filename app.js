@@ -106,15 +106,8 @@ app.get('/callback', async (req, res) => {
     let access_token = body.access_token,
         refresh_token = body.refresh_token;
 
-    let options = {
-        method: "get",
-        url: 'https://api.spotify.com/v1/me',
-        headers: {'Authorization': 'Bearer ' + access_token},
-        json: true
-    };
-
     // use the access token to access the Spotify Web API
-    const spotifyResponse = await axios(options);
+    const spotifyResponse = await performSpotifyRequest(access_token, 'https://api.spotify.com/v1/me');
 
     // we can also pass the token to the browser to make requests from there
     res.cookie("clientID", spotifyResponse.data.id);
@@ -249,7 +242,7 @@ async function generateRandomPlaylist(req, res) {
     }
 
     // As the user has a timeframe allocated favourite genres, we can search for a playlist name
-    let selectedPlaylistData = null;
+    let selectedPlaylistData = await fetchPlaylistDataOnName(spotifyPlaylistName, access_token);
     while (!selectedPlaylistData) {
         // Create a new playlist with that name
         selectedPlaylistData = await createPlaylist(spotifyPlaylistName, clientID, access_token);
@@ -297,50 +290,26 @@ async function generateRandomPlaylist(req, res) {
 }
 
 async function fetchUsersTopOnMode(clientAccessToken, time_range = "short_term", limit = 50, topMode = "artists", offset = 0) {
-    let options = {
-        method: "get",
-        url: `https://api.spotify.com/v1/me/top/${topMode}`,
-        headers: {'Authorization': 'Bearer ' + clientAccessToken},
-        json: true,
-        params: {
-            limit,
-            time_range,
-            offset
-        }
-    }
-
-    const userTopArtistRequest = await axios(options);
+    const userTopArtistRequest = await performSpotifyRequest(clientAccessToken, `https://api.spotify.com/v1/me/top/${topMode}`, "get", {
+        limit,
+        time_range,
+        offset
+    });
     const userTopArtistResponse = userTopArtistRequest.data;
     return userTopArtistResponse['items'] ?? null;
 }
 
 async function createPlaylist(playlistName, userID, clientAccessToken) {
-
-    let options = {
-        method: "post",
-        url: `https://api.spotify.com/v1/users/${userID}/playlists`,
-        headers: {'Authorization': 'Bearer ' + clientAccessToken},
-        json: true,
-        data: JSON.stringify({
-            "name": playlistName,
-            "description": "This playlist was randomly generated.",
-            "public": false
-        })
-    };
-
-    const spotifyPlaylistRequest = await axios(options);
+    const spotifyPlaylistRequest = await performSpotifyRequest(clientAccessToken, `https://api.spotify.com/v1/users/${userID}/playlists`, "post", {
+        "name": playlistName,
+        "description": "This playlist was randomly generated.",
+        "public": false
+    });
     return spotifyPlaylistRequest.data ?? null;
 }
 
 async function fetchPlaylistDataOnName(playlistName, clientAccessToken) {
-    let options = {
-        method: "get",
-        url: 'https://api.spotify.com/v1/me/playlists',
-        headers: {'Authorization': 'Bearer ' + clientAccessToken},
-        json: true
-    };
-
-    const spotifyPlaylistRequest = await axios(options);
+    const spotifyPlaylistRequest = await performSpotifyRequest(clientAccessToken, 'https://api.spotify.com/v1/me/playlists');
     const spotifyPlaylistResponse = spotifyPlaylistRequest.data ?? null;
 
     // If the playlist is null, the user has no playlists and so we should return null
@@ -393,14 +362,7 @@ async function fetchPlaylistData(userToken, playlistID) {
 }
 
 async function fetchPlaylistDataOffset(userToken, playlistID, offset = 0) {
-    let options = {
-        method: "get",
-        url: `https://api.spotify.com/v1/playlists/${playlistID}/tracks?offset=${offset}`,
-        headers: {'Authorization': 'Bearer ' + userToken},
-        json: true
-    }
-
-    const playlistDataRequest = await axios(options);
+    const playlistDataRequest = await performSpotifyRequest(userToken, `https://api.spotify.com/v1/playlists/${playlistID}/tracks?offset=${offset}`);
     return playlistDataRequest.data ?? null;
 }
 
@@ -416,15 +378,13 @@ async function fetchRecommendedSongs(userToken, userCountry, typeOfSeeds = "seed
             market: userCountry
         };
 
-        let options = {
-            method: "get",
-            url: `https://api.spotify.com/v1/recommendations`,
-            headers: {'Authorization': 'Bearer ' + userToken},
-            params,
-            json: true
-        }
+        const spotifyRecommendationRequest = await performSpotifyRequest(
+            userToken,
+            `https://api.spotify.com/v1/recommendations`,
+            "get",
+            params
+        );
 
-        const spotifyRecommendationRequest = await axios(options);
         const spotifyRecommendationResponse = spotifyRecommendationRequest.data ?? null;
 
         if (!spotifyRecommendationResponse) {
@@ -452,13 +412,31 @@ async function addSongsToPlaylist(userToken, playlistID, songs) {
     const chunkSize = 100; // Spotify prevents anything greater than this
     for (let i = 0; i < songs.length; i += chunkSize) {
         const chunk = songs.slice(i, i + chunkSize);
-        let options = {
-            method: "post",
-            url: `https://api.spotify.com/v1/playlists/${playlistID}/tracks`,
-            headers: {'Authorization': 'Bearer ' + userToken},
-            data: JSON.stringify(chunk),
-            json: true
-        }
-        await axios(options);
+        await performSpotifyRequest(
+            userToken,
+            `https://api.spotify.com/v1/playlists/${playlistID}/tracks`,
+            "post",
+            chunk
+        );
     }
+}
+
+async function performSpotifyRequest(userToken = null, url, method = "get", params = null) {
+    if (!userToken || !url) {
+        return null;
+    }
+    let options = {
+        method,
+        url,
+        json: true,
+        headers: {
+            Authorization: `Bearer ${userToken}`
+        }
+    };
+
+    if (params) {
+        options['params'] = params;
+    }
+
+    return axios(options);
 }
