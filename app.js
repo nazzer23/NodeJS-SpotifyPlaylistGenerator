@@ -8,6 +8,14 @@ let cookieParser = require('cookie-parser');
 
 const app = express();
 
+const isValidUrl = urlString => {
+    try {
+        return Boolean(new URL(urlString));
+    } catch (e) {
+        return false;
+    }
+}
+
 const {CLIENT_ID, CLIENT_SECRET, CALLBACK_URL, WEB_PORT, GENRE_SONG_CHUNK} = process.env;
 let redirectUri = `${CALLBACK_URL}/callback`;
 
@@ -160,35 +168,8 @@ app.get('/logout', (req, res) => {
 console.log(`Listening on ${WEB_PORT} with callback URL ${CALLBACK_URL}`);
 app.listen(WEB_PORT);
 
-async function generateRandomPlaylist(req, res) {
-    const {clientID, access_token, country} = req.cookies;
-
-    // Allow the ability to specify a playlist name using json payload
-    let spotifyPlaylistName = req.body.playlistName;
-    if (!spotifyPlaylistName || (spotifyPlaylistName.length <= 0)) {
-        spotifyPlaylistName = "Randomly Generated Playlist";
-    }
-
-    let acceptableTypes = ["tracks", "genres", "artists"];
-    let selectedType = req.body.type;
-    if (!acceptableTypes.includes(selectedType)) {
-        selectedType = acceptableTypes[0];
-    }
-
+async function fetchSpotifyTopTracks(access_token, selectedType, timeRanges) {
     let queryIDs = [];
-
-    // Fetch the current users top artists
-    let timeRanges = [
-        "short_term",
-        "medium_term",
-        "long_term"
-    ];
-    if (req.body.timeRange) {
-        if (timeRanges.includes(req.body.timeRange)) {
-            timeRanges = [req.body.timeRange];
-        }
-    }
-
     // Used to keep a track of which artist ids have already been used.
     let artistsUsed = [];
     let selectedModeType = (selectedType === "tracks") ? 'tracks' : 'artists';
@@ -233,6 +214,56 @@ async function generateRandomPlaylist(req, res) {
         }
     }
 
+    return queryIDs;
+}
+
+async function generateRandomPlaylist(req, res) {
+    const {clientID, access_token, country} = req.cookies;
+
+    // Allow the ability to specify a playlist name using json payload
+    let spotifyPlaylistName = req.body.playlistName;
+    if (!spotifyPlaylistName || (spotifyPlaylistName.length <= 0)) {
+        spotifyPlaylistName = "Randomly Generated Playlist";
+    }
+
+    let acceptableTypes = ["tracks", "genres", "artists", "playlist"];
+    let selectedType = req.body.type;
+    if (!acceptableTypes.includes(selectedType)) {
+        selectedType = acceptableTypes[0];
+    }
+
+    let queryIDs = [];
+
+    if (selectedType !== 'playlist') {
+        // Fetch the current users top artists
+        let timeRanges = [
+            "short_term",
+            "medium_term",
+            "long_term"
+        ];
+        if (req.body.timeRange) {
+            if (timeRanges.includes(req.body.timeRange)) {
+                timeRanges = [req.body.timeRange];
+            }
+        }
+
+        queryIDs = await fetchSpotifyTopTracks(access_token, selectedType, timeRanges);
+
+    } else {
+        let playlistId = req.body.playlistId;
+        if (isValidUrl(playlistId)) {
+            let url = new URL(playlistId);
+            console.log(url.pathname);
+
+            playlistId = url?.pathname?.split('/')[url?.pathname?.split('/')?.length - 1];
+        }
+        queryIDs = await fetchPlaylistData(access_token, playlistId);
+
+        queryIDs = queryIDs.map(a => a?.split('spotify:track:')[1]);
+    }
+
+    console.log(queryIDs);
+
     // If the user has no tracks, they're probably a new account and as a result, can't be used for recommended
     if (queryIDs.length === 0) {
         res.json({
@@ -257,6 +288,8 @@ async function generateRandomPlaylist(req, res) {
         return;
     }
 
+    console.log(spotifyPlaylistID);
+
     // Now that we know the playlist exists, we can start to populate it
     const spotifyPlaylistContent = await fetchPlaylistData(access_token, spotifyPlaylistID);
     if (!spotifyPlaylistContent) {
@@ -270,7 +303,11 @@ async function generateRandomPlaylist(req, res) {
     let songRecommendations = [];
     let maxAttemptsToGenre = 0;
     while ((songRecommendations.length < GENRE_SONG_CHUNK) && (maxAttemptsToGenre <= 10)) {
-        songRecommendations.concat(await fetchRecommendedSongs(access_token, (country ?? "GB"), `seed_${selectedType}`, queryIDs, spotifyPlaylistContent, songRecommendations));
+        let seedType = selectedType;
+        if (seedType === "playlist") {
+            seedType = "tracks";
+        }
+        songRecommendations.concat(await fetchRecommendedSongs(access_token, (country ?? "GB"), `seed_${seedType}`, queryIDs, spotifyPlaylistContent, songRecommendations));
         maxAttemptsToGenre++;
     }
 
