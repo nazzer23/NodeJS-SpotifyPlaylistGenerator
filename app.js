@@ -260,6 +260,14 @@ async function generateRandomPlaylist(req, res) {
         queryIDs = await fetchPlaylistData(access_token, playlistId);
 
         queryIDs = queryIDs.map(a => a?.split('spotify:track:')[1]);
+
+        if(queryIDs && queryIDs?.length > 20) {
+            queryIDs = queryIDs.map(value => ({ value, sort: Math.random() }))
+                .sort((a, b) => a.sort - b.sort)
+                .map(({ value }) => value);
+
+            queryIDs = queryIDs?.slice(0, 20);
+        }
     }
 
     console.log(queryIDs);
