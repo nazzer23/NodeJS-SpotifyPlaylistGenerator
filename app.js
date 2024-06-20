@@ -253,8 +253,6 @@ async function generateRandomPlaylist(req, res) {
         let playlistId = req.body.playlistId;
         if (isValidUrl(playlistId)) {
             let url = new URL(playlistId);
-            console.log(url.pathname);
-
             playlistId = url?.pathname?.split('/')[url?.pathname?.split('/')?.length - 1];
         }
         queryIDs = await fetchPlaylistData(access_token, playlistId);
@@ -269,8 +267,6 @@ async function generateRandomPlaylist(req, res) {
             queryIDs = queryIDs?.slice(0, 20);
         }
     }
-
-    console.log(queryIDs);
 
     // If the user has no tracks, they're probably a new account and as a result, can't be used for recommended
     if (queryIDs.length === 0) {
@@ -296,8 +292,6 @@ async function generateRandomPlaylist(req, res) {
         return;
     }
 
-    console.log(spotifyPlaylistID);
-
     // Now that we know the playlist exists, we can start to populate it
     const spotifyPlaylistContent = await fetchPlaylistData(access_token, spotifyPlaylistID);
     if (!spotifyPlaylistContent) {
@@ -321,7 +315,6 @@ async function generateRandomPlaylist(req, res) {
 
     // We want to slice the max song chunk size.
     songRecommendations = songRecommendations.slice(0, GENRE_SONG_CHUNK);
-
     if (songRecommendations && songRecommendations.length > 0) {
         await addSongsToPlaylist(access_token, spotifyPlaylistID, songRecommendations);
     }
@@ -454,15 +447,19 @@ async function fetchRecommendedSongs(userToken, userCountry, typeOfSeeds = "seed
 }
 
 async function addSongsToPlaylist(userToken, playlistID, songs) {
-    const chunkSize = 100; // Spotify prevents anything greater than this
+    const chunkSize = 20; // Spotify prevents anything greater than this
     for (let i = 0; i < songs.length; i += chunkSize) {
         const chunk = songs.slice(i, i + chunkSize);
-        await performSpotifyRequest(
+        let response = await performSpotifyRequest(
             userToken,
             `https://api.spotify.com/v1/playlists/${playlistID}/tracks`,
             "post",
-            chunk
+            {
+                "uris":chunk,
+                "position":0
+            }
         );
+        console.log(response.data);
     }
 }
 
@@ -486,6 +483,8 @@ async function performSpotifyRequest(userToken = null, url, method = "get", para
             options['data'] = JSON.stringify(params);
         }
     }
+
+    console.log(options);
 
     return axios(options);
 }
